@@ -1,7 +1,8 @@
-USE PersonVectorSearch;
-GO
 
--- Create a temp table #SampleNames
+------------------------------------------------------------------------------
+-- 1) Create a temp table #SampleNames
+------------------------------------------------------------------------------
+
 CREATE TABLE #SampleNames (
     FirstName NVARCHAR(100),
     LastName  NVARCHAR(100)
@@ -9,14 +10,14 @@ CREATE TABLE #SampleNames (
 
 INSERT INTO #SampleNames (FirstName, LastName)
 SELECT NameValue, NULL 
-FROM (VALUES
-    -- Common English
+FROM 
+(
+    VALUES    
     ('John'),('Jane'),('Michael'),('Emily'),('Robert'),('Linda'),('William'),
     ('Elizabeth'),('James'),('Mary'),('David'),('Jennifer'),('Richard'),
     ('Patricia'),('Charles'),('Barbara'),('Joseph'),('Susan'),('Thomas'),
     ('Jessica'),('Christopher'),('Sarah'),('Daniel'),('Karen'),('Paul'),
     ('Nancy'),('Mark'),('Lisa'),('Donald'),('Betty'),
-    -- Common Indian
     ('Aarav'),('Aanya'),('Vihaan'),('Ishaan'),('Ananya'),('Arjun'),('Diya'),
     ('Aditya'),('Riya'),('Kavya'),('Rohan'),('Aryan'),('Saanvi'),('Meera'),
     ('Krishna'),('Nitya'),('Rahul'),('Sneha'),('Karan'),('Manav'),('Priya'),
@@ -26,31 +27,46 @@ FROM (VALUES
     ('Swati'),('Abhishek'),('Mansi'),('Rakesh'),('Chitra'),('Suresh'),
     ('Shruti'),('Vikram'),('Geeta'),('Vivek'),('Seema'),('Kunal'),('Deepa'),
     ('Mohit'),('Bhavna'),('Jay'),('Sarita'),('Rohit'),('Ajay'),('Alok'),
-    ('Payal'),('Sanjay')
+    ('Payal'),('Sanjay'),
+    ('Samantha'),('Alexander'),('Nicholas'),('Victoria'),('Olivia'),('Ethan'),
+    ('Noah'),('Liam'),('Emma'),('Ava'),('Sophia'),('Mason'),('Isabella'),
+    ('Amelia'),('Elijah'),('Logan'),('Mia'),('Charlotte'),('Zoe'),('Max'),
+    ('Leo'),('Claire')
 ) AS t(NameValue);
+
+-------------------------------------------------------------------------------
+-- 2) Update #SampleNames with multiple last names
+-------------------------------------------------------------------------------
 
 UPDATE #SampleNames
 SET LastName = LN.LastName
 FROM #SampleNames
-CROSS APPLY (VALUES 
-    -- Common English
+CROSS APPLY 
+(
+    VALUES     
     ('Smith'),('Johnson'),('Williams'),('Brown'),('Jones'),('Garcia'),
     ('Miller'),('Davis'),('Rodriguez'),('Martinez'),('Hernandez'),('Wilson'),
     ('Taylor'),('Anderson'),('Thomas'),('Moore'),('Jackson'),
-    -- Common Indian
     ('Sharma'),('Gupta'),('Kumar'),('Mehta'),('Reddy'),('Verma'),('Singh'),
     ('Patel'),('Choudhary'),('Malhotra'),('Kapoor'),('Iyer'),('Rao'),
     ('Banerjee'),('Saxena'),('Joshi'),('Nair'),('Ghosh'),('Agarwal'),
     ('Bose'),('Das'),('Pandey'),('Roy'),('Chatterjee'),('Sen'),('Menon'),
     ('Mukherjee'),('Tripathi'),('Sethi'),('Thakur'),('Desai'),('Bhatt'),
     ('Bhatnagar'),('Sinha'),('Mahajan'),('Kulkarni'),('Rastogi'),('Bajaj'),
-    ('Chopra'),('Narayan'),('Pillai')
+    ('Chopra'),('Narayan'),('Pillai'),
+    ('Adams'),('Baker'),('Clark'),('Evans'),('Collins'),('Carter'),('Morris'),
+    ('Bell'),('Ward'),('Young'),('Robinson'),('Wright'),('King'),('Lopez'),
+    ('Green'),('Hall'),('Lewis'),('Walker'),('Perez'),('Scott'),('White'),
+    ('Harris'),('Turner'),('Parker')
 ) AS LN(LastName)
 WHERE #SampleNames.LastName IS NULL;
 
+-------------------------------------------------------------------------------
+-- 3) Set NOCOUNT and gather the distinct first and last names
+-------------------------------------------------------------------------------
+
 SET NOCOUNT ON;
 
--- 2.a. Count how many unique first/last names we have.
 DECLARE @MaxFirst INT = (
     SELECT COUNT(DISTINCT FirstName) 
     FROM #SampleNames
@@ -60,11 +76,16 @@ DECLARE @MaxLast INT  = (
     FROM #SampleNames
 );
 
---------------------------------------------------------------------------------
--- 2.b. Use a digits approach to build 1,000,000 row numbers in a CTE
---      - Each CROSS JOIN with digits multiplies row count by 10
---      - 6 CROSS JOINs => up to 1,000,000 rows
---------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+-- 4) Control how many records to insert using @NumberOfRecords
+-------------------------------------------------------------------------------
+
+DECLARE @NumberOfRecords INT = 1000;  -- <==== Change this to desired count
+
+-------------------------------------------------------------------------------
+-- 5) Build row numbers (up to 1M) in a CTE using digits approach
+-------------------------------------------------------------------------------
+
 WITH Digits AS (
     SELECT 0 AS d UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL
     SELECT 3        UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL
@@ -82,6 +103,11 @@ Numbers AS (
     CROSS JOIN Digits AS d6
     -- This yields up to 1,000,000 rows (10^6)
 )
+
+-------------------------------------------------------------------------------
+-- 6) Insert into Person using the calculated row numbers
+-------------------------------------------------------------------------------
+
 INSERT INTO Person
 (
   FirstName,
@@ -117,7 +143,6 @@ SELECT
     -- Some variation of BirthDate, e.g. up to ~27 yrs
     DATEADD(DAY, -(N.num % 10000), GETDATE()) AS BirthDate
 FROM Numbers AS N
--- The first/last name CTEs:
 CROSS JOIN 
 (
     SELECT 
@@ -134,15 +159,18 @@ CROSS JOIN
     FROM #SampleNames
     GROUP BY LastName
 ) AS LN
--- We only want exactly 1,000,000 rows, so filter:
-WHERE N.num <= 1000000
+WHERE N.num <= @NumberOfRecords
   AND FN.rn = (N.num % @MaxFirst) + 1
   AND LN.rn = (N.num % @MaxLast) + 1
-OPTION (MAXDOP 1);  -- optional: avoid huge parallel plan overhead
+OPTION (MAXDOP 1);  -- optional: helps avoid huge parallel plan overhead
+
+-------------------------------------------------------------------------------
+-- 7) Clean up and notify
+-------------------------------------------------------------------------------
 
 SET NOCOUNT OFF;
 
 DROP TABLE #SampleNames;
 
-PRINT '1 million records inserted into the Person table.';
+PRINT CAST(@NumberOfRecords AS VARCHAR(20)) + ' records inserted into the Person table.';
 GO
